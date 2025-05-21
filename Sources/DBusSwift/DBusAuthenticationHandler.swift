@@ -5,28 +5,42 @@ import NIOExtras
 
 /// Authentication types supported for DBus connections
 /// See: https://dbus.freedesktop.org/doc/dbus-specification.html#auth-mechanisms
-public enum AuthType: Sendable {
+public struct AuthType: Sendable {
+  internal enum Backing: Sendable {
+    /// Anonymous authentication (no credentials)
+    /// See: https://dbus.freedesktop.org/doc/dbus-specification.html#auth-mechanisms-anonymous
+    case anonymous
+
+    /// External authentication using provided user ID
+    /// See: https://dbus.freedesktop.org/doc/dbus-specification.html#auth-mechanisms-external
+    case external(userID: String)
+  }
+
+  let backing: Backing
+
   /// Anonymous authentication (no credentials)
   /// See: https://dbus.freedesktop.org/doc/dbus-specification.html#auth-mechanisms-anonymous
-  case anonymous
+  public static let anonymous = AuthType(backing: .anonymous)
 
   /// External authentication using provided user ID
   /// See: https://dbus.freedesktop.org/doc/dbus-specification.html#auth-mechanisms-external
-  case external(userID: String)
+  public static func external(userID: String) -> AuthType {
+    AuthType(backing: .external(userID: userID))
+  }
 }
 
 /// Handles the DBus authentication protocol
 /// This channel handler implements the client-side of the DBus authentication protocol
 /// See: https://dbus.freedesktop.org/doc/dbus-specification.html#auth-protocol
-public final class DBusAuthenticationHandler: ChannelDuplexHandler, @unchecked Sendable {
-  public typealias InboundIn = ByteBuffer
-  public typealias InboundOut = ByteBuffer
-  public typealias OutboundIn = ByteBuffer
-  public typealias OutboundOut = ByteBuffer
+internal final class DBusAuthenticationHandler: ChannelDuplexHandler, @unchecked Sendable {
+  internal typealias InboundIn = ByteBuffer
+  internal typealias InboundOut = ByteBuffer
+  internal typealias OutboundIn = ByteBuffer
+  internal typealias OutboundOut = ByteBuffer
 
   /// States of the DBus authentication protocol
   /// See: https://dbus.freedesktop.org/doc/dbus-specification.html#auth-protocol
-  public enum State {
+  internal enum State {
     /// Waiting for NUL byte reply from server (initial state)
     case waitingForNullReply
     /// Authentication sent, waiting for OK response
@@ -42,11 +56,11 @@ public final class DBusAuthenticationHandler: ChannelDuplexHandler, @unchecked S
   private let auth: AuthType
   private var writeBuffer = [ByteBuffer]()
 
-  public init(auth: AuthType) {
+  internal init(auth: AuthType) {
     self.auth = auth
   }
 
-  public func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+  internal func channelRead(context: ChannelHandlerContext, data: NIOAny) {
     var buf = self.unwrapInboundIn(data)
     buffer.writeBuffer(&buf)
     processBuffer(context: context)
@@ -89,6 +103,7 @@ public final class DBusAuthenticationHandler: ChannelDuplexHandler, @unchecked S
             context.fireErrorCaught(error)
           }
         } else if line.starts(with: "REJECTED ") {
+          context.fireErrorCaught(DBusAuthenticationError.invalidAuthCommand)
           // let mechanisms = line.split(separator: " ")
           //     .dropFirst()
 
@@ -112,8 +127,9 @@ public final class DBusAuthenticationHandler: ChannelDuplexHandler, @unchecked S
     }
   }
 
-  public func write(context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?)
-  {
+  internal func write(
+    context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?
+  ) {
     if state == .authenticated, writeBuffer.isEmpty {
       context.writeAndFlush(data, promise: promise)
     } else {
@@ -121,7 +137,7 @@ public final class DBusAuthenticationHandler: ChannelDuplexHandler, @unchecked S
     }
   }
 
-  public func channelWritabilityChanged(context: ChannelHandlerContext) {
+  internal func channelWritabilityChanged(context: ChannelHandlerContext) {
     if state == .authenticated {
       context.fireChannelWritabilityChanged()
     }
@@ -130,7 +146,7 @@ public final class DBusAuthenticationHandler: ChannelDuplexHandler, @unchecked S
   /// Initiates the DBus authentication process when the channel becomes active
   /// Sends the initial NUL byte followed by the AUTH command
   /// See: https://dbus.freedesktop.org/doc/dbus-specification.html#auth-command
-  public func channelActive(context: ChannelHandlerContext) {
+  internal func channelActive(context: ChannelHandlerContext) {
     // Send initial NUL byte and AUTH command
     var buf = context.channel.allocator.buffer(capacity: 64)
     buf.writeInteger(UInt8(0))
@@ -138,7 +154,7 @@ public final class DBusAuthenticationHandler: ChannelDuplexHandler, @unchecked S
     // For now, send EXTERNAL with empty (\r\n at end)
     let auth: String
 
-    switch self.auth {
+    switch self.auth.backing {
     case .anonymous:
       auth = "AUTH ANONYMOUS\r\n"
     case .external(let userID):
@@ -155,7 +171,7 @@ public final class DBusAuthenticationHandler: ChannelDuplexHandler, @unchecked S
 
 /// Errors that can occur during the DBus authentication process
 /// See: https://dbus.freedesktop.org/doc/dbus-specification.html#auth-protocol
-public enum DBusAuthenticationError: Error {
+enum DBusAuthenticationError: Error {
   /// The initial NUL byte was invalid or missing
   case invalidInitialNull
   /// Received an invalid AUTH command response
@@ -165,7 +181,7 @@ public enum DBusAuthenticationError: Error {
 }
 
 /// Events that can be triggered during the DBus authentication process
-public enum DBusAuthenticationEvent {
+enum DBusAuthenticationEvent {
   /// Authentication was successful
   case authenticated
 }

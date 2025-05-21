@@ -25,8 +25,8 @@ struct App {
       try await DBusClient.withConnection(
         to: SocketAddress(unixDomainSocketPath: "/var/run/dbus/system_bus_socket"),
         auth: .external(userID: uid)
-      ) { inbound, outbound in
-        try await outbound.write(
+      ) { replies, send in
+        try await send(
           DBusMessage.createMethodCall(
             destination: "org.freedesktop.DBus",
             path: "/org/freedesktop/DBus",
@@ -35,9 +35,7 @@ struct App {
             serial: 1
           ))
 
-        var iter = inbound.makeAsyncIterator()
-
-        guard let helloReply = try await iter.next() else {
+        guard let helloReply = try await replies.next() else {
           print("No reply from Hello method call")
           return
         }
@@ -72,9 +70,9 @@ struct App {
           let serial = nextSerial()
           let message = try withSerial(serial)
           print("Message: \(message)")
-          try await outbound.write(message)
+          try await send(message)
           print("Wrote message")
-          while let reply = try await iter.next() {
+          while let reply = try await replies.next() {
             print("Received reply with serial: \(reply.replyTo ?? 0)")
             guard reply.replyTo == serial else {
               continue

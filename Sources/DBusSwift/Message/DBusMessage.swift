@@ -132,16 +132,11 @@ public struct DBusMessage: Sendable {
     }
 
     var bufferCopy = body
+    let signature = try DBusTypeSignature(sig)
+    let result = try Self.parseArguments(from: &bufferCopy, from: signature, byteOrder: byteOrder)
 
-    do {
-      let signature = try DBusTypeSignature(sig)
-      let result = try Self.parseArguments(from: &bufferCopy, from: signature, byteOrder: byteOrder)
-
-      body = bufferCopy
-      return result
-    } catch {
-      throw error
-    }
+    body = bufferCopy
+    return result
   }
 
   public static func createMethodCall(

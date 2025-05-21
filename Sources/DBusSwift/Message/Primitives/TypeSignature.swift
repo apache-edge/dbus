@@ -145,7 +145,7 @@ public struct DBusTypeSignature {
   }
 
   /// Errors that can occur during signature parsing
-  public enum Error: Swift.Error, CustomStringConvertible {
+  internal enum Error: Swift.Error, CustomStringConvertible {
     case unexpectedEnd
     case unmatchedParenthesis
     case unmatchedBrace
